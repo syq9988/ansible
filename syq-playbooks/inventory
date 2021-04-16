@@ -1,0 +1,7 @@
+[apic:vars]
+username=autohome
+password=Autohome@2020
+ansible_python_interpreter="/usr/bin/env python"
+
+[apic]
+10.168.88.97 ansible_connection=ssh ansible_user=autohome ansible_ssh_pass=Autohome@2020

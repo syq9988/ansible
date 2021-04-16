@@ -1,0 +1,129 @@
+---
+- name: ENSURE APPLICATION CONFIGURATION EXISTS
+  hosts: apic
+  connection: local
+  gather_facts: False
+
+  tasks:
+    - name: ENSURE APPLICATIONS TENANT EXISTS
+      aci_tenant:
+        host: "{{ ansible_host }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        state: "present"
+        validate_certs: False
+        tenant: "{{ tenant }}"
+        description: "Tenant Created Using Ansible"
+
+    - name: ENSURE TENANT VRF EXISTS
+      aci_vrf:
+        host: "{{ ansible_host }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        state: "present"
+        validate_certs: False
+        tenant: "{{ tenant }}"
+        vrf: "{{ vrf }}"
+        description: "VRF Created Using Ansible"
+
+    - name: ENSURE TENANT BRIDGE DOMAIN EXISTS
+      aci_bd:
+        host: "{{ ansible_host }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        state: "present"
+        validate_certs: False
+        tenant: "{{ tenant }}"
+        bd: "{{ bd }}"
+        vrf: "{{ vrf }}"
+        description: "BD Created Using Ansible"
+
+    - name: ENSURE BRIDGE DOMAIN SUBNET EXISTS
+      aci_bd_subnet:
+        host: "{{ ansible_host }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        state: "present"
+        validate_certs: False
+        tenant: "{{ tenant }}"
+        bd: "{{ bd }}"
+        gateway: "{{ gateway }}"
+        mask: 24
+        scope: "public,shared"
+        description: "Subnet Created Using Ansible"
+
+    - name: EUSURE BD ASSOCIATE WITH L3OUT
+      aci_bd_to_l3out:
+        host: "{{ ansible_host }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        state: "present"
+        validate_certs: False
+        tenant: "{{ tenant }}"
+        bd: "{{ bd }}"
+        l3out: "{{ l3out }}"
+
+    - name: ENSURE APPLICATION EXISTS
+      aci_ap:
+        host: "{{ inventory_hostname }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        state: "present"
+        validate_certs: False
+        tenant: "{{ tenant }}"
+        ap: "{{ ap }}"
+        descr: "App Profile Created Using Ansible"
+        
+    - name: ENSURE APPLICATION EPGS EXISTS
+      aci_epg:
+        host: "{{ inventory_hostname }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        state: "present"
+        validate_certs: False
+        tenant: "{{ tenant }}"
+        ap: "{{ ap }}"
+        epg: "{{ epg }}"
+        bd: "{{ bd }}"
+        description: "EPG Created Using Ansible"
+
+    - name: ENSURE DOMAIN IS BOUND TO EPG
+      aci_epg_to_domain:
+        host: "{{ inventory_hostname }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        state: "present"
+        validate_certs: false
+        tenant: "{{ tenant }}"
+        ap: "{{ ap }}"
+        epg: "{{ epg }}"
+        domain: "PD-autohome-default"
+        domain_type: "phys"
+
+    - name: ENSURE EPG IS ASSOCIATED TO CONTRACTS
+      aci_epg_to_contract:
+        host: "{{ inventory_hostname }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        state: "present"
+        validate_certs: False
+        tenant: "{{ tenant }}"
+        ap: "{{ ap }}"
+        epg: "{{ epg }}"
+        contract: "default"
+        contract_type: "provider"
+    
+    - name: ENSURE EPG IS ASSOCIATED TO another CONTRACTS
+      aci_epg_to_contract:
+        host: "{{ inventory_hostname }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        state: "present"
+        validate_certs: False
+        tenant: "{{ tenant }}"
+        ap: "{{ ap }}"
+        epg: "{{ epg }}"
+        contract: "default"
+        contract_type: "consumer"
+
+
