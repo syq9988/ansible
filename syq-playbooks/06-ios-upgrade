@@ -1,0 +1,176 @@
+---
+
+- name: Upgrade switch IOS-XE software
+  hosts: all
+  gather_facts: false
+
+  vars:
+    - compliant_ios_version: 03.06.08E
+    - system_image_filename: cat3k_caa-universalk9.SPA.03.06.08.E.152-2.E8.bin
+    - system_image_md5: a04a54d69cb2b4d2867ed369e73598ae
+    - gateway_ip: 192.168.88.254
+    - ftp_server: 192.168.88.254
+    - ftp_username: cisco
+    - ftp_password: cisco123
+    - ftp_source_vlan: 88
+
+  tasks:
+
+  - name: Gather switch facts
+    ios_facts:
+
+  - name: Upgrade IOS image if not compliant
+    block:
+    - name: Backup configuration - capture commands output before the upgrade
+      ios_command: 
+        commands: "{{ item }}"
+      loop:
+        - "show version"
+        - "show vlan"
+        - "show run"
+        - "show ip int brief"
+        - "ping {{ gateway_ip }}"
+        - "write mem"
+      register: commands_before
+
+    - name: Backup configuration - store commands output to the text file
+      lineinfile:
+        path: ./output/{{ inventory_hostname }}.txt
+        create: yes
+        line: "{{ inventory_hostname }}#{{ item.item }}\n{{ item.stdout[0] }}\n\n"
+      loop: "{{ commands_before.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Upload software - configure FTP parameters
+      ios_config: 
+        commands: "{{ item }}"
+      loop:
+        - "ip ftp username {{ ftp_username }}"
+        - "ip ftp password {{ ftp_password }}"
+        - "ip ftp source-interface vlan{{ftp_source_vlan}}"
+
+    - name: Upload software - copy image from FTP server
+      ios_command:
+        commands: 
+          - command: "copy ftp://{{ ftp_server }}/{{ system_image_filename }} flash:"
+            prompt: Destination filename
+            answer: "\r"
+      vars:
+        ansible_command_timeout: 480
+
+    - name: Verify image md5 checksum
+      ios_command:
+        commands: "verify /md5 flash:/{{ system_image_filename }}"
+      register: image_md5
+      failed_when: "not system_image_md5 in image_md5.stdout[0]"
+
+    - name: Install the software
+      ios_command:
+        commands: "software install file flash:{{ system_image_filename }} on-reboot"
+
+    - name: Save configuration before reload
+      ios_command:
+        commands: "write mem"
+      
+    - name: Reboot switch
+      ios_command:
+        commands: "reload\n"
+
+    - name: Wait for switch to return
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 22
+        timeout: 1800
+      delegate_to: localhost
+
+    - name: Verify switch status after upgrade - check software version
+      ios_command:
+        commands: "show version | i INSTALL"
+      register: command_show_version_after
+      failed_when: "not compliant_ios_version in command_show_version_after.stdout[0]"
+      
+    - name: Save commands output (before state) to the text file for comparison
+      lineinfile:
+        path: ./output/{{ inventory_hostname }}_{{ item.item}}_before.txt
+        create: yes
+        line: "{{ item.stdout[0] }}"
+      loop: "{{ commands_before.results }}"
+      when: item.item == "show run" or item.item == "show ip int brief"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Backup configuration - capture commands output after the upgrade
+      ios_command: 
+        commands: "{{ item }}"
+      loop:
+        - "show run"
+        - "show ip int brief"
+      register: commands_after
+
+    - name: Save commands output (after state) to the text file for comparison
+      lineinfile:
+        path: ./output/{{ inventory_hostname }}_{{ item.item}}_after.txt
+        create: yes
+        line: "{{ item.stdout[0] }}"
+      loop: "{{ commands_after.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Check and compare configuration
+      command: diff -y -t --suppress-common-lines ./output/'{{ inventory_hostname }}_show run_before.txt' ./output/'{{ inventory_hostname }}_show run_after.txt'
+      failed_when: "command_show_run_diff.rc > 1"
+      register: command_show_run_diff
+
+    - name: Save the difference of configuration into a text file
+      copy: 
+        content: "{{ command_show_run_diff.stdout }}"
+        dest: ./output/{{ inventory_hostname }}_show run_diff.txt
+
+    - name: Get the checksum of "show ip int brief before" file
+      stat:
+        path: ./output/{{ inventory_hostname }}_show ip int brief_before.txt
+      register: command_show_ip_int_brief_before_chksum
+
+    - name: Get the checksum of "show ip int brief after" file
+      stat:
+        path: ./output/{{ inventory_hostname }}_show ip int brief_after.txt
+      register: command_show_ip_int_brief_after_chksum
+
+    - name: Check and verify the interface status
+      assert: 
+        that:
+          - command_show_ip_int_brief_before_chksum.stat.checksum == command_show_ip_int_brief_after_chksum.stat.checksum
+        success_msg: "The interface status has been checked and verified successfully."
+        fail_msg: "The interface status check has failed. The difference of before and after will be captured and saved."
+      ignore_errors: yes
+            
+    - name: Capture the interface status difference and notify when the comparison fails
+      block:      
+      - name: Check and compare interface status
+        command: diff -y -t --suppress-common-lines ./output/'{{ inventory_hostname }}_show ip int brief_before.txt' ./output/'{{ inventory_hostname }}_show ip int brief_after.txt'
+        failed_when: "command_show_ip_int_brief_diff.rc > 1"
+        register: command_show_ip_int_brief_diff
+
+      - name: Save the difference of interface status into a text file
+        copy: 
+          content: "{{ command_show_ip_int_brief_diff.stdout }}"
+          dest: ./output/{{ inventory_hostname }}_show ip int brief_diff.txt
+      when: command_show_ip_int_brief_before_chksum.stat.checksum != command_show_ip_int_brief_after_chksum.stat.checksum
+
+    - name: Perform ping test to the gateway IP
+      ios_command:
+        commands: "ping {{ gateway_ip }}"
+      register: command_ping
+      failed_when: "not '!!!' in command_ping.stdout[0]"
+
+    when: ansible_net_version != compliant_ios_version
+    #when: ansible_net_version != "abc"
+
+  - name: Gather switch facts for verification
+    ios_facts:
+
+  - name: Assert that the IOS version is correct
+    assert:
+      that:
+        - compliant_ios_version == ansible_net_version
